@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/xml"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path"
@@ -11,13 +11,14 @@ import (
 
 	"github.com/criteo/firmirror/cli"
 	"github.com/criteo/firmirror/types"
-	"github.com/criteo/firmirror/utils"
 	"github.com/criteo/firmirror/vendors/dell"
 	"github.com/criteo/firmirror/vendors/hpe"
 )
 
+var outDir = ""
+
 func buildPackage(tmpDir string, appstream *types.Component) error {
-	outBytes := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	outBytes := []byte(xml.Header)
 	xmlBytes, err := xml.MarshalIndent(appstream, "", "  ")
 	if err != nil {
 		return err
@@ -40,92 +41,114 @@ func buildPackage(tmpDir string, appstream *types.Component) error {
 	}
 
 	cmd := exec.Command("fwupdtool", fwupdArgs...)
+	cmd.Dir = outDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("error building package: %s, %s", err, out)
+		slog.Error("Failed to build package", "error", err, "output", string(out))
+		return err
 	}
 
 	return nil
 }
 
-const FILENAME = "16_35_4030-MCX562A-ACA_Ax_Bx.pldm.fwpkg"
+// processVendor processes firmware for a given vendor using the interface
+func processVendor(vendor types.Vendor, vendorName string, limit int) error {
+	logger := slog.With("vendor", vendorName)
+	logger.Info("Fetching catalog")
+
+	catalog, err := vendor.FetchCatalog()
+	if err != nil {
+		logger.Error("Failed to fetch catalog", "error", err)
+		return err
+	}
+
+	entries := catalog.ListEntries()
+	processed := 0
+
+	for _, entry := range entries {
+		if processed >= limit {
+			break
+		}
+
+		fwName := entry.GetFilename()
+		entryLogger := logger.With("firmware", fwName)
+		entryLogger.Info("Processing firmware")
+
+		tmpDir, err := os.MkdirTemp(outDir, fwName+".wrk")
+		if err != nil {
+			entryLogger.Error("Failed to create temp directory", "error", err)
+			continue
+		}
+		defer os.RemoveAll(tmpDir)
+
+		// Retrieve firmware (downloads it for vendors that need it)
+		_, err = vendor.RetrieveFirmware(entry, tmpDir)
+		if err != nil {
+			entryLogger.Error("Failed to retrieve firmware", "error", err)
+			continue
+		}
+
+		// Convert to AppStream
+		appstream, err := vendor.FirmwareToAppstream(entry)
+		if err != nil {
+			entryLogger.Error("Failed to convert firmware", "error", err)
+			continue
+		}
+
+		// Build package
+		err = buildPackage(tmpDir, appstream)
+		if err != nil {
+			entryLogger.Error("Failed to build package", "error", err)
+			continue
+		}
+
+		processed++
+		entryLogger.Info("Successfully processed firmware")
+	}
+
+	logger.Info("Completed vendor processing", "processed", processed)
+	return nil
+}
 
 func main() {
 	ctx := kong.Parse(&cli.CLI)
 	switch ctx.Command() {
 	case "refresh <out-dir>":
-
 	default:
 		panic(ctx.Command())
 	}
+	outDir = cli.CLI.Refresh.OutDir
+	os.MkdirAll(outDir, 0o0755)
 
-	tmpDir, err := os.MkdirTemp(".", "firmirror-*")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	err = utils.CopyFile(FILENAME, path.Join(tmpDir, FILENAME))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-	os.Remove(FILENAME + ".cab")
-
-	appstream, err := hpe.HandleHPEFirmware(FILENAME)
-	if err != nil {
-		fmt.Println(err)
+	if !cli.CLI.HPEFlags.Enable && !cli.CLI.DellFlags.Enable {
+		slog.Error("No vendor enabled, exiting")
 		return
 	}
 
-	err = buildPackage(tmpDir, appstream)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	dellCatalog, err := dell.DellFetchCatalog()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	dellSystems := map[string]bool{
-		"0C60": true,
-	}
-	toFetch := []dell.DellSoftwareComponent{}
-	for _, swComponent := range dellCatalog.SoftwareComponents {
-		// Only select firmware, not drivers
-		if swComponent.ComponentType.Value != "FRMW" {
-			continue
-		}
-		for _, brands := range swComponent.SupportedSystems {
-			for _, system := range brands.Models {
-				if dellSystems[system.SystemID] {
-					toFetch = append(toFetch, swComponent)
-				}
-			}
+	// Create vendor registry
+	registry := types.NewVendorRegistry()
+	if cli.CLI.HPEFlags.Enable {
+		for _, gen := range cli.CLI.HPEFlags.Gens {
+			hpeRepo := "fwpp-" + gen
+			hpeVendor := hpe.NewHPEVendor(hpeRepo)
+			registry.RegisterVendor("hpe-"+gen, hpeVendor)
 		}
 	}
 
-	// for _, fw := range toFetch {
-	tmpDir, err = os.MkdirTemp(".", "firmirror-*")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-	dell.DellDownloadFirmware(toFetch[44], tmpDir)
-	appstream, err = dell.HandleDellFirmware(toFetch[44])
-	if err != nil {
-		fmt.Println(err)
-		return
+	if cli.CLI.DellFlags.Enable {
+		dellVendor := dell.NewDellVendor(cli.CLI.DellFlags.MachinesID)
+		registry.RegisterVendor("dell", dellVendor)
 	}
 
-	err = buildPackage(tmpDir, appstream)
-	if err != nil {
-		fmt.Println(err)
-		return
+	slog.Info("Starting firmware processing", "vendors", len(registry.GetAllVendors()))
+
+	for vendorName, vendor := range registry.GetAllVendors() {
+		slog.Info("Processing vendor", "name", vendorName)
+		err := processVendor(vendor, vendorName, 10)
+		if err != nil {
+			slog.Error("Failed to process vendor", "vendor", vendorName, "error", err)
+		}
 	}
-	// }
+
+	slog.Info("Firmware processing completed")
 }

@@ -1,5 +1,20 @@
 package hpe
 
+type HPECatalog struct {
+	Entries map[string]HPECatalogEntry `json:",inline"`
+}
+
+type HPECatalogEntry struct {
+	Date                 string   `json:"date"`
+	Description          string   `json:"description"`
+	DeviceClass          string   `json:"deviceclass"`
+	MinimumActiveVersion string   `json:"minimum_active_version"`
+	RebootRequired       string   `json:"reboot_required"`
+	ServerPowerOff       string   `json:"server_power_off"`
+	Target               []string `json:"target"`
+	Version              string   `json:"version"`
+}
+
 type HPEPayload struct {
 	DeviceClass   string     `json:"DeviceClass"`
 	Devices       HPEDevices `json:"Devices"`
