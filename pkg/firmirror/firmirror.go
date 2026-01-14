@@ -1,6 +1,7 @@
 package firmirror
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"log/slog"
@@ -64,7 +65,7 @@ func (f *FimirrorSyncer) GetAllVendors() map[string]Vendor {
 }
 
 // processVendor processes firmware for a given vendor using the interface
-func (f *FimirrorSyncer) ProcessVendor(vendor Vendor, vendorName string) error {
+func (f *FimirrorSyncer) ProcessVendor(ctx context.Context, vendor Vendor, vendorName string) error {
 	logger := slog.With("vendor", vendorName)
 	logger.Info("Fetching catalog")
 
@@ -78,6 +79,13 @@ func (f *FimirrorSyncer) ProcessVendor(vendor Vendor, vendorName string) error {
 	processed := 0
 
 	for _, entry := range entries {
+		// Check for cancellation before processing each firmware
+		select {
+		case <-ctx.Done():
+			logger.Info("Shutdown requested, finishing current vendor", "processed", processed, "total", len(entries))
+			return ctx.Err()
+		default:
+		}
 		fwName := entry.GetFilename()
 		entryLogger := logger.With("firmware", fwName)
 		entryLogger.Info("Processing firmware")

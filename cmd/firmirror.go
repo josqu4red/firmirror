@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/alecthomas/kong"
 
@@ -12,12 +15,16 @@ import (
 )
 
 func main() {
-	ctx := kong.Parse(&firmirror.CLI)
-	switch ctx.Command() {
+	cliCtx := kong.Parse(&firmirror.CLI)
+	switch cliCtx.Command() {
 	case "refresh <out-dir>":
 	default:
-		panic(ctx.Command())
+		panic(cliCtx.Command())
 	}
+
+	// Setup signal handling for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	fmConf := firmirror.FirmirrorConfig{
 		OutputDir: firmirror.CLI.Refresh.OutDir,
@@ -53,9 +60,20 @@ func main() {
 	slog.Info("Starting firmware processing", "vendors", len(fm.GetAllVendors()))
 
 	for vendorName, vendor := range fm.GetAllVendors() {
+		// Check if shutdown requested before starting new vendor
+		if ctx.Err() != nil {
+			slog.Info("Shutdown requested, stopping processing")
+			break
+		}
+
 		slog.Info("Processing vendor", "name", vendorName)
-		if err := fm.ProcessVendor(vendor, vendorName); err != nil {
-			slog.Error("Failed to process vendor", "vendor", vendorName, "error", err)
+		if err := fm.ProcessVendor(ctx, vendor, vendorName); err != nil {
+			// Don't log context cancellation as an error
+			if err == context.Canceled {
+				slog.Info("Vendor processing cancelled", "vendor", vendorName)
+			} else {
+				slog.Error("Failed to process vendor", "vendor", vendorName, "error", err)
+			}
 		}
 	}
 
