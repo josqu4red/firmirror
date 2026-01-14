@@ -22,7 +22,6 @@ func main() {
 	fmConf := firmirror.FirmirrorConfig{
 		OutputDir: firmirror.CLI.Refresh.OutDir,
 	}
-	os.MkdirAll(fmConf.OutputDir, 0o0755)
 
 	if !firmirror.CLI.HPEFlags.Enable && !firmirror.CLI.DellFlags.Enable {
 		slog.Error("No vendor enabled, exiting")
@@ -30,6 +29,12 @@ func main() {
 	}
 
 	fm := firmirror.NewFimirrorSyncer(fmConf)
+
+	// Run preflight checks
+	if err := fm.PreflightCheck(); err != nil {
+		slog.Error("Preflight check failed", "error", err)
+		os.Exit(1)
+	}
 
 	if firmirror.CLI.HPEFlags.Enable {
 		for _, gen := range firmirror.CLI.HPEFlags.Gens {

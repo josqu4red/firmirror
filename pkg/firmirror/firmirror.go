@@ -2,6 +2,7 @@ package firmirror
 
 import (
 	"encoding/xml"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -25,6 +26,27 @@ func NewFimirrorSyncer(config FirmirrorConfig) *FimirrorSyncer {
 		Config:  config,
 		vendors: make(map[string]Vendor),
 	}
+}
+
+// PreflightCheck verifies that required external tools are available and creates the output directory
+func (f *FimirrorSyncer) PreflightCheck() error {
+	// Check for required binaries
+	requiredBinaries := []string{"fwupdtool"}
+
+	for _, binary := range requiredBinaries {
+		if _, err := exec.LookPath(binary); err != nil {
+			return fmt.Errorf("required binary '%s' not found in PATH: %w", binary, err)
+		}
+		slog.Debug("Found required binary", "binary", binary)
+	}
+
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(f.Config.OutputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+	slog.Debug("Output directory ready", "path", f.Config.OutputDir)
+
+	return nil
 }
 
 // RegisterVendor registers a vendor with the given name
