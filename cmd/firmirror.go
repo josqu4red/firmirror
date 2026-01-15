@@ -21,6 +21,7 @@ func main() {
 
 	fmConf := firmirror.FirmirrorConfig{
 		OutputDir: firmirror.CLI.Refresh.OutDir,
+		CacheDir:  firmirror.CLI.Refresh.CacheDir,
 	}
 
 	if !firmirror.CLI.HPEFlags.Enable && !firmirror.CLI.DellFlags.Enable {

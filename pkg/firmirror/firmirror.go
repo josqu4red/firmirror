@@ -13,7 +13,8 @@ import (
 )
 
 type FirmirrorConfig struct {
-	OutputDir string
+	OutputDir string // Directory for final CAB files and metadata
+	CacheDir  string // Cache directory for temporary files and original firmware
 }
 
 type FimirrorSyncer struct {
@@ -28,11 +29,10 @@ func NewFimirrorSyncer(config FirmirrorConfig) *FimirrorSyncer {
 	}
 }
 
-// PreflightCheck verifies that required external tools are available and creates the output directory
+// PreflightCheck verifies that required external tools are available and creates necessary directories
 func (f *FimirrorSyncer) PreflightCheck() error {
 	// Check for required binaries
 	requiredBinaries := []string{"fwupdtool"}
-
 	for _, binary := range requiredBinaries {
 		if _, err := exec.LookPath(binary); err != nil {
 			return fmt.Errorf("required binary '%s' not found in PATH: %w", binary, err)
@@ -41,10 +41,13 @@ func (f *FimirrorSyncer) PreflightCheck() error {
 	}
 
 	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(f.Config.OutputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
+	requiredDirs := []string{f.Config.CacheDir, f.Config.OutputDir}
+	for _, dir := range requiredDirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+		slog.Debug("Directory ready", "path", f.Config.OutputDir)
 	}
-	slog.Debug("Output directory ready", "path", f.Config.OutputDir)
 
 	return nil
 }
@@ -79,15 +82,13 @@ func (f *FimirrorSyncer) ProcessVendor(vendor Vendor, vendorName string) error {
 		entryLogger := logger.With("firmware", fwName)
 		entryLogger.Info("Processing firmware")
 
-		tmpDir, err := os.MkdirTemp(f.Config.OutputDir, fwName+".wrk")
-		if err != nil {
-			entryLogger.Error("Failed to create temp directory", "error", err)
+		workDir := path.Join(f.Config.CacheDir, fwName)
+		if err := os.MkdirAll(workDir, 0755); err != nil {
+			entryLogger.Error("Failed to create working directory", "error", err)
 			continue
 		}
-		defer os.RemoveAll(tmpDir)
 
-		_, err = vendor.RetrieveFirmware(entry, tmpDir)
-		if err != nil {
+		if _, err = vendor.RetrieveFirmware(entry, workDir); err != nil {
 			entryLogger.Error("Failed to retrieve firmware", "error", err)
 			continue
 		}
@@ -100,7 +101,7 @@ func (f *FimirrorSyncer) ProcessVendor(vendor Vendor, vendorName string) error {
 		}
 
 		// Build package
-		err = f.buildPackage(appstream, tmpDir)
+		err = f.buildPackage(appstream, workDir)
 		if err != nil {
 			entryLogger.Error("Failed to build package", "error", err)
 			continue

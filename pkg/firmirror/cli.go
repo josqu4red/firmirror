@@ -14,7 +14,8 @@ type CLIFlags struct {
 	DellFlags `embed:"" prefix:"dell." group:"Dell" help:"Dell firmware fetching."`
 	HPEFlags  `embed:"" prefix:"hpe." group:"HPE" help:"HPE firmware fetching."`
 	Refresh   struct {
-		OutDir string `arg:"" help:"Output directory for the LVFS-compatible firmware repository" type:"path"`
+		OutDir   string `arg:"" help:"Output directory for the LVFS-compatible firmware repository" type:"path"`
+		CacheDir string `help:"Cache directory for storing original firmware and temporary files" default:"firmirror-cache" type:"path"`
 	} `cmd:"" help:"Refresh all the firmware from the repositories. Note: this will not replace the already-existing firmware, even if the vendor pushed an updated version. You will need to delete the firmware manually."`
 }
 

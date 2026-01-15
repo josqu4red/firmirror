@@ -129,9 +129,11 @@ func TestFimirrorSyncer_GetAllVendors(t *testing.T) {
 func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 	t.Run("SuccessfulProcessing", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		// Create mock firmware entry with minimal AppStream component
@@ -171,9 +173,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("FetchCatalogError", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockVendor := &MockVendor{
@@ -188,9 +192,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("RetrieveFirmwareError", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockEntry := &MockFirmwareEntry{
@@ -212,9 +218,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("ToAppstreamError", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockEntry := &MockFirmwareEntry{
@@ -237,9 +245,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("EmptyCatalog", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockVendor := &MockVendor{
@@ -256,9 +266,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("MultipleFirmwareEntries", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockEntry1 := &MockFirmwareEntry{
@@ -296,9 +308,11 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 
 	t.Run("TempDirectoryCreated", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		cacheDir := t.TempDir()
 
 		syncer := NewFimirrorSyncer(FirmirrorConfig{
 			OutputDir: tmpDir,
+			CacheDir:  cacheDir,
 		})
 
 		mockEntry := &MockFirmwareEntry{
