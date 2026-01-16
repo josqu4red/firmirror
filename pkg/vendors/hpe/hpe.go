@@ -84,10 +84,12 @@ func (hv *HPEVendor) ProcessFirmware(entry firmirror.FirmwareEntry) (*lvfs.Compo
 		return nil, "", fmt.Errorf("failed to create work directory: %w", err)
 	}
 
-	// Download firmware to cache
+	// Download firmware to cache if it doesn't exist
 	filepath := path.Join(workDir, path.Base(hpeEntry.Filename))
-	if err := utils.DownloadFileToDest(hv.BaseURL+"/current/"+hpeEntry.Filename, filepath); err != nil {
-		return nil, "", fmt.Errorf("failed to download firmware: %w", err)
+	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+		if err := utils.DownloadFileToDest(hv.BaseURL+"/current/"+hpeEntry.Filename, filepath); err != nil {
+			return nil, "", fmt.Errorf("failed to download firmware: %w", err)
+		}
 	}
 
 	// Read payload from ZIP

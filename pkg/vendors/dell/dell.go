@@ -116,11 +116,13 @@ func (dv *DellVendor) ProcessFirmware(entry firmirror.FirmwareEntry) (*lvfs.Comp
 		return nil, "", fmt.Errorf("failed to create work directory: %w", err)
 	}
 
-	// Download firmware to cache
+	// Download firmware to cache if it doesn't exist
 	fwPath := dellEntry.DellSoftwareComponent.Path
 	filepath := path.Join(workDir, path.Base(fwPath))
-	if err := utils.DownloadFileToDest(dv.BaseURL+"/"+fwPath, filepath); err != nil {
-		return nil, "", fmt.Errorf("failed to download firmware: %w", err)
+	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+		if err := utils.DownloadFileToDest(dv.BaseURL+"/"+fwPath, filepath); err != nil {
+			return nil, "", fmt.Errorf("failed to download firmware: %w", err)
+		}
 	}
 
 	// Convert to AppStream
