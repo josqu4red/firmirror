@@ -15,7 +15,7 @@ import (
 type MockVendor struct {
 	catalog         *MockCatalog
 	fetchErr        error
-	retrieveErr     error
+	processErr      error
 	retrievedFiles  []string
 	retrieveContent string
 }
@@ -27,26 +27,45 @@ func (m *MockVendor) FetchCatalog() (Catalog, error) {
 	return m.catalog, nil
 }
 
-func (m *MockVendor) RetrieveFirmware(entry FirmwareEntry, tmpDir string) (string, error) {
-	if m.retrieveErr != nil {
-		return "", m.retrieveErr
+func (m *MockVendor) ProcessFirmware(entry FirmwareEntry) (*lvfs.Component, string, error) {
+	if m.processErr != nil {
+		return nil, "", m.processErr
 	}
 
 	filename := entry.GetFilename()
-	filepath := filepath.Join(tmpDir, filename)
+	workDir := filepath.Join(os.TempDir(), filename)
+
+	// Create work directory
+	err := os.MkdirAll(workDir, 0755)
+	if err != nil {
+		return nil, "", err
+	}
+
+	filepath := filepath.Join(workDir, filename)
 
 	content := m.retrieveContent
 	if content == "" {
 		content = "mock firmware content"
 	}
 
-	err := os.WriteFile(filepath, []byte(content), 0644)
+	err = os.WriteFile(filepath, []byte(content), 0644)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 
 	m.retrievedFiles = append(m.retrievedFiles, filename)
-	return filepath, nil
+
+	// Get AppStream from mock entry
+	mockEntry, ok := entry.(*MockFirmwareEntry)
+	if !ok {
+		return nil, "", errors.New("invalid entry type for mock vendor")
+	}
+
+	if mockEntry.appstreamErr != nil {
+		return nil, "", mockEntry.appstreamErr
+	}
+
+	return mockEntry.appstream, workDir, nil
 }
 
 // MockCatalog implements the Catalog interface for testing
@@ -67,13 +86,6 @@ type MockFirmwareEntry struct {
 
 func (m *MockFirmwareEntry) GetFilename() string {
 	return m.filename
-}
-
-func (m *MockFirmwareEntry) ToAppstream() (*lvfs.Component, error) {
-	if m.appstreamErr != nil {
-		return nil, m.appstreamErr
-	}
-	return m.appstream, nil
 }
 
 func TestNewFimirrorSyncer(t *testing.T) {
@@ -207,7 +219,7 @@ func TestFimirrorSyncer_ProcessVendor(t *testing.T) {
 			catalog: &MockCatalog{
 				entries: []FirmwareEntry{mockEntry},
 			},
-			retrieveErr: errors.New("retrieve failed"),
+			processErr: errors.New("process failed"),
 		}
 
 		// Should not return error, but should continue processing

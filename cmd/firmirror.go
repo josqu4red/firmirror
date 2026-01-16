@@ -40,13 +40,13 @@ func main() {
 	if firmirror.CLI.HPEFlags.Enable {
 		for _, gen := range firmirror.CLI.HPEFlags.Gens {
 			hpeRepo := "fwpp-" + gen
-			hpeVendor := hpe.NewHPEVendor(hpeRepo)
+			hpeVendor := hpe.NewHPEVendor(fmConf.CacheDir, hpeRepo)
 			fm.RegisterVendor("hpe-"+gen, hpeVendor)
 		}
 	}
 
 	if firmirror.CLI.DellFlags.Enable {
-		dellVendor := dell.NewDellVendor(firmirror.CLI.DellFlags.MachinesID)
+		dellVendor := dell.NewDellVendor(fmConf.CacheDir, firmirror.CLI.DellFlags.MachinesID)
 		fm.RegisterVendor("dell", dellVendor)
 	}
 

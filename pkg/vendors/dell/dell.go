@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -17,10 +18,11 @@ import (
 	"golang.org/x/text/transform"
 )
 
-func NewDellVendor(systemIDs []string) *DellVendor {
+func NewDellVendor(cacheDir string, systemIDs []string) *DellVendor {
 	vendor := &DellVendor{
 		BaseURL:   "https://dl.dell.com",
 		SystemIDs: systemIDs,
+		CacheDir:  cacheDir,
 	}
 
 	return vendor
@@ -102,19 +104,32 @@ func (dv *DellVendor) filterCatalog(catalog *DellCatalog) *DellCatalog {
 	return &filteredCatalog
 }
 
-func (dv *DellVendor) RetrieveFirmware(entry firmirror.FirmwareEntry, tmpDir string) (string, error) {
+func (dv *DellVendor) ProcessFirmware(entry firmirror.FirmwareEntry) (*lvfs.Component, string, error) {
 	dellEntry, ok := entry.(*DellFirmwareEntry)
 	if !ok {
-		return "", fmt.Errorf("invalid entry type for Dell vendor")
+		return nil, "", fmt.Errorf("invalid entry type for Dell vendor")
 	}
 
+	// Create working directory for this firmware
+	workDir := path.Join(dv.CacheDir, entry.GetFilename())
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return nil, "", fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Download firmware to cache
 	fwPath := dellEntry.DellSoftwareComponent.Path
-	filepath := path.Join(tmpDir, path.Base(fwPath))
+	filepath := path.Join(workDir, path.Base(fwPath))
 	if err := utils.DownloadFileToDest(dv.BaseURL+"/"+fwPath, filepath); err != nil {
-		return "", err
+		return nil, "", fmt.Errorf("failed to download firmware: %w", err)
 	}
 
-	return filepath, nil
+	// Convert to AppStream
+	appstream, err := processFirmware(*dellEntry.DellSoftwareComponent)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert to AppStream: %w", err)
+	}
+
+	return appstream, workDir, nil
 }
 
 func (dc *DellCatalog) ListEntries() []firmirror.FirmwareEntry {
@@ -130,10 +145,6 @@ func (dc *DellCatalog) ListEntries() []firmirror.FirmwareEntry {
 
 func (dfe *DellFirmwareEntry) GetFilename() string {
 	return dfe.Filename
-}
-
-func (dfe *DellFirmwareEntry) ToAppstream() (*lvfs.Component, error) {
-	return processFirmware(*dfe.DellSoftwareComponent)
 }
 
 func processFirmware(fw DellSoftwareComponent) (*lvfs.Component, error) {

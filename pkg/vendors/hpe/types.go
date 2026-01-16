@@ -2,7 +2,8 @@ package hpe
 
 // HPEVendor implements the Vendor interface for HPE
 type HPEVendor struct {
-	BaseURL string
+	BaseURL  string
+	CacheDir string
 }
 
 // HPEVendor implements the Catalog interface for HPE
@@ -12,9 +13,8 @@ type HPECatalog struct {
 
 // HPEFirmwareEntry implements the FirmwareEntry interface for HPE
 type HPEFirmwareEntry struct {
-	Filename     string
-	Entry        *HPECatalogEntry
-	downloadPath string // Store download path for processing
+	Filename string
+	Entry    *HPECatalogEntry
 }
 
 type HPECatalogEntry struct {

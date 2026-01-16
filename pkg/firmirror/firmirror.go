@@ -82,27 +82,13 @@ func (f *FimirrorSyncer) ProcessVendor(vendor Vendor, vendorName string) error {
 		entryLogger := logger.With("firmware", fwName)
 		entryLogger.Info("Processing firmware")
 
-		workDir := path.Join(f.Config.CacheDir, fwName)
-		if err := os.MkdirAll(workDir, 0755); err != nil {
-			entryLogger.Error("Failed to create working directory", "error", err)
-			continue
-		}
-
-		if _, err = vendor.RetrieveFirmware(entry, workDir); err != nil {
-			entryLogger.Error("Failed to retrieve firmware", "error", err)
-			continue
-		}
-
-		// Convert to AppStream
-		appstream, err := entry.ToAppstream()
+		appstream, workDir, err := vendor.ProcessFirmware(entry)
 		if err != nil {
-			entryLogger.Error("Failed to convert firmware", "error", err)
+			entryLogger.Error("Failed to process firmware", "error", err)
 			continue
 		}
 
-		// Build package
-		err = f.buildPackage(appstream, workDir)
-		if err != nil {
+		if err = f.buildPackage(appstream, workDir); err != nil {
 			entryLogger.Error("Failed to build package", "error", err)
 			continue
 		}
@@ -128,7 +114,13 @@ func (f *FimirrorSyncer) buildPackage(appstream *lvfs.Component, tmpDir string) 
 		return err
 	}
 
-	fwupdArgs := []string{"build-cabinet", fwFiles[0].Name() + ".cab", path.Join(tmpDir, "/firmware.metainfo.xml")}
+	cabFile := fwFiles[0].Name() + ".cab"
+	if _, err := os.Stat(path.Join(f.Config.OutputDir, cabFile)); err == nil {
+		slog.Debug("Skipping cab build: file exists")
+		return nil
+	}
+
+	fwupdArgs := []string{"build-cabinet", cabFile, path.Join(tmpDir, "/firmware.metainfo.xml")}
 	for _, f := range fwFiles {
 		fwupdArgs = append(fwupdArgs, path.Join(tmpDir, f.Name()))
 	}

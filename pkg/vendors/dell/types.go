@@ -10,6 +10,7 @@ type DellVendor struct {
 	BaseURL string
 	// SystemIDs filters which system to include. If nil or empty, includes all systems. Example: ["0C60"]
 	SystemIDs []string
+	CacheDir  string
 }
 
 // DellCatalog represents the catalog element of a Dell catalog

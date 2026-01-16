@@ -68,27 +68,30 @@ func mockServer(t *testing.T) *httptest.Server {
 func TestNewDellVendor(t *testing.T) {
 	t.Run("WithSystemIDs", func(t *testing.T) {
 		systemIDs := []string{"0C60", "0C61"}
-		vendor := NewDellVendor(systemIDs)
+		vendor := NewDellVendor("/cache", systemIDs)
 
 		assert.NotNil(t, vendor, "Vendor should not be nil")
 		assert.Equal(t, "https://dl.dell.com", vendor.BaseURL, "BaseURL should be set correctly")
 		assert.Equal(t, systemIDs, vendor.SystemIDs, "SystemIDs should be set correctly")
+		assert.Equal(t, "/cache", vendor.CacheDir, "CacheDir should be set correctly")
 	})
 
 	t.Run("WithoutSystemIDs", func(t *testing.T) {
-		vendor := NewDellVendor(nil)
+		vendor := NewDellVendor("/cache", nil)
 
 		assert.NotNil(t, vendor, "Vendor should not be nil")
 		assert.Equal(t, "https://dl.dell.com", vendor.BaseURL, "BaseURL should be set correctly")
 		assert.Nil(t, vendor.SystemIDs, "SystemIDs should be nil")
+		assert.Equal(t, "/cache", vendor.CacheDir, "CacheDir should be set correctly")
 	})
 
 	t.Run("WithEmptySystemIDs", func(t *testing.T) {
-		vendor := NewDellVendor([]string{})
+		vendor := NewDellVendor("/cache", []string{})
 
 		assert.NotNil(t, vendor, "Vendor should not be nil")
 		assert.Equal(t, "https://dl.dell.com", vendor.BaseURL, "BaseURL should be set correctly")
 		assert.Empty(t, vendor.SystemIDs, "SystemIDs should be empty")
+		assert.Equal(t, "/cache", vendor.CacheDir, "CacheDir should be set correctly")
 	})
 }
 
@@ -153,43 +156,75 @@ func TestDellVendor_FetchCatalog(t *testing.T) {
 	})
 }
 
-func TestDellVendor_RetrieveFirmware(t *testing.T) {
+func TestDellVendor_ProcessFirmware(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	vendor := &DellVendor{
-		BaseURL: server.URL,
-	}
+	tmpCacheDir := t.TempDir()
 
-	tmpDir := t.TempDir()
+	vendor := &DellVendor{
+		BaseURL:  server.URL,
+		CacheDir: tmpCacheDir,
+	}
 
 	// Create a test firmware entry
 	entry := &DellFirmwareEntry{
 		Filename: "firmware1.exe",
 		DellSoftwareComponent: &DellSoftwareComponent{
-			Path: "FOLDER01/firmware1.exe",
+			Path:          "FOLDER01/firmware1.exe",
+			VendorVersion: "1.0.0",
+			DateTime:      mustParseTime("2024-01-15T10:30:00Z"),
 			Name: DellTranslatable{
 				Display: []DellTranslatableEntry{
 					{Lang: "en", Value: "Test Firmware"},
 				},
 			},
+			Description: DellTranslatable{
+				Display: []DellTranslatableEntry{
+					{Lang: "en", Value: "Test firmware description"},
+				},
+			},
+			LUCategory: DellTranslatableWithValue{
+				Value: "Network",
+			},
+			Criticality: DellCriticality{
+				Value: 1,
+			},
+			SupportedSystems: []DellBrand{
+				{
+					Models: []DellModel{
+						{SystemID: "0C60"},
+					},
+				},
+			},
+			SupportedDevices: []DellDevice{
+				{ComponentID: "DEV001"},
+			},
 		},
 	}
 
-	// Test retrieving firmware
-	filepath, err := vendor.RetrieveFirmware(entry, tmpDir)
-	assert.NoError(t, err, "RetrieveFirmware should not return an error")
-	assert.NotEmpty(t, filepath, "Filepath should not be empty")
+	// Test processing firmware
+	component, workDir, err := vendor.ProcessFirmware(entry)
+	assert.NoError(t, err, "ProcessFirmware should not return an error")
+	assert.NotNil(t, component, "Component should not be nil")
+	assert.NotEmpty(t, workDir, "WorkDir should not be empty")
 
-	// Check that file was created
-	assert.FileExists(t, filepath, "Downloaded file should exist")
+	// Check that work directory was created
+	assert.DirExists(t, workDir, "Work directory should exist")
+
+	// Check that firmware file was downloaded to work directory
+	fwPath := filepath.Join(workDir, "firmware1.exe")
+	assert.FileExists(t, fwPath, "Downloaded firmware file should exist")
 
 	// Verify file content
-	content, err := os.ReadFile(filepath)
+	content, err := os.ReadFile(fwPath)
 	assert.NoError(t, err, "Should be able to read downloaded file")
-
 	expectedContent := "Mock Dell firmware content for firmware1.exe"
 	assert.Equal(t, expectedContent, string(content), "File content should match expected")
+
+	// Verify the returned component
+	assert.Equal(t, "firmware", component.Type, "Component type should be firmware")
+	assert.Equal(t, "Test Firmware", component.Name, "Component name should match")
 }
 
 func TestDellCatalog_ListEntries(t *testing.T) {
@@ -241,83 +276,6 @@ func TestDellFirmwareEntry_GetFilename(t *testing.T) {
 
 	filename := entry.GetFilename()
 	assert.Equal(t, "test-firmware.exe", filename, "GetFilename should return the correct filename")
-}
-
-func TestDellFirmwareEntry_ToAppstream(t *testing.T) {
-	entry := &DellFirmwareEntry{
-		Filename: "test-firmware.exe",
-		DellSoftwareComponent: &DellSoftwareComponent{
-			Path:           "FOLDER01/test-firmware.exe",
-			VendorVersion:  "1.0.0",
-			DateTime:       mustParseTime("2024-01-15T10:30:00Z"),
-			RebootRequired: true,
-			Name: DellTranslatable{
-				Display: []DellTranslatableEntry{
-					{Lang: "en", Value: "Test Network Firmware"},
-				},
-			},
-			Description: DellTranslatable{
-				Display: []DellTranslatableEntry{
-					{Lang: "en", Value: "Test firmware description"},
-				},
-			},
-			ImportantInfo: DellTranslatable{
-				Display: []DellTranslatableEntry{
-					{Lang: "en", Value: "Reboot required"},
-				},
-			},
-			LUCategory: DellTranslatableWithValue{
-				Value: "Network",
-			},
-			Criticality: DellCriticality{
-				Value: 1, // Medium urgency
-			},
-			SupportedSystems: []DellBrand{
-				{
-					Models: []DellModel{
-						{SystemID: "0C60"},
-					},
-				},
-			},
-			SupportedDevices: []DellDevice{
-				{ComponentID: "DEV001"},
-			},
-		},
-	}
-
-	component, err := entry.ToAppstream()
-	assert.NoError(t, err, "ToAppstream should not return an error")
-	assert.NotNil(t, component, "Component should not be nil")
-
-	// Verify basic component properties
-	assert.Equal(t, "firmware", component.Type, "Component type should be firmware")
-	assert.Equal(t, "proprietary", component.MetadataLicense, "Metadata license should be proprietary")
-	assert.Equal(t, "proprietary", component.ProjectLicense, "Project license should be proprietary")
-	assert.Equal(t, "Test Network Firmware", component.Name, "Component name should match")
-	assert.Equal(t, "Test firmware description", component.Summary, "Component summary should match")
-
-	// Verify releases
-	assert.Len(t, component.Releases, 1, "Should have exactly one release")
-	release := component.Releases[0]
-	assert.Equal(t, "1.0.0", release.Version, "Release version should match")
-	assert.Equal(t, "medium", release.Urgency, "Release urgency should be medium for criticality 1")
-	assert.Equal(t, "test-firmware.exe", release.Checksum.Filename, "Checksum filename should match")
-
-	// Verify categories for Network LUCategory
-	assert.Contains(t, component.Categories, "X-NetworkInterface", "Should contain X-NetworkInterface category")
-
-	// Verify custom fields for reboot required
-	customKeys := make([]string, len(component.Custom))
-	for i, custom := range component.Custom {
-		customKeys[i] = custom.Key
-	}
-	assert.Contains(t, customKeys, "LVFS::DeviceFlags", "Should contain DeviceFlags custom field")
-	assert.Contains(t, customKeys, "LVFS::UpdateMessage", "Should contain UpdateMessage custom field")
-	assert.Contains(t, customKeys, "LVFS::UpdateProtocol", "Should contain UpdateProtocol custom field")
-	assert.Contains(t, customKeys, "LVFS::DeviceIntegrity", "Should contain DeviceIntegrity custom field")
-
-	// Verify provides section
-	assert.NotEmpty(t, component.Provides, "Should have provides entries")
 }
 
 // Helper function for parsing time in tests

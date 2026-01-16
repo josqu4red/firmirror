@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -16,9 +17,10 @@ import (
 )
 
 // NewHPEVendor creates a new HPE vendor instance
-func NewHPEVendor(repo string) *HPEVendor {
+func NewHPEVendor(cacheDir, repo string) *HPEVendor {
 	return &HPEVendor{
-		BaseURL: "https://downloads.linux.hpe.com/SDR/repo/" + repo,
+		BaseURL:  "https://downloads.linux.hpe.com/SDR/repo/" + repo,
+		CacheDir: cacheDir,
 	}
 }
 
@@ -69,21 +71,49 @@ func (hv *HPEVendor) filterCatalog(catalog *HPECatalog) *HPECatalog {
 	return filteredCatalog
 }
 
-// RetrieveFirmware implements the Vendor interface
-func (hv *HPEVendor) RetrieveFirmware(entry firmirror.FirmwareEntry, tmpDir string) (string, error) {
+// ProcessFirmware implements the Vendor interface
+func (hv *HPEVendor) ProcessFirmware(entry firmirror.FirmwareEntry) (*lvfs.Component, string, error) {
 	hpeEntry, ok := entry.(*HPEFirmwareEntry)
 	if !ok {
-		return "", fmt.Errorf("invalid entry type for HPE vendor")
+		return nil, "", fmt.Errorf("invalid entry type for HPE vendor")
 	}
 
-	filepath := path.Join(tmpDir, path.Base(hpeEntry.Filename))
+	// Create working directory for this firmware
+	workDir := path.Join(hv.CacheDir, entry.GetFilename())
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return nil, "", fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Download firmware to cache
+	filepath := path.Join(workDir, path.Base(hpeEntry.Filename))
 	if err := utils.DownloadFileToDest(hv.BaseURL+"/current/"+hpeEntry.Filename, filepath); err != nil {
-		return "", err
+		return nil, "", fmt.Errorf("failed to download firmware: %w", err)
 	}
 
-	// Store the download path in the entry for later processing
-	hpeEntry.downloadPath = filepath
-	return filepath, nil
+	// Read payload from ZIP
+	payloadFile, err := readFileFromZip(filepath, "payload.json")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read payload from ZIP: %w", err)
+	}
+
+	var payload HPEPayload
+	if err = json.Unmarshal(payloadFile, &payload); err != nil {
+		return nil, "", fmt.Errorf("failed to parse payload: %w", err)
+	}
+
+	// Convert to AppStream
+	appstream, err := buildAppStream(payload)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert to AppStream: %w", err)
+	}
+
+	// Set checksum
+	appstream.Releases[0].Checksum = lvfs.Checksum{
+		Filename: hpeEntry.Filename,
+		Target:   "content",
+	}
+
+	return appstream, workDir, nil
 }
 
 // ListEntries implements the Catalog interface for HPECatalog
@@ -102,36 +132,6 @@ func (hc *HPECatalog) ListEntries() []firmirror.FirmwareEntry {
 // GetFilename implements the FirmwareEntry interface
 func (hfe *HPEFirmwareEntry) GetFilename() string {
 	return hfe.Filename
-}
-
-// ToAppstream implements the FirmwareEntry interface
-// HPE requires the firmware to be downloaded first, so we use the stored path
-func (hfe *HPEFirmwareEntry) ToAppstream() (*lvfs.Component, error) {
-	if hfe.downloadPath == "" {
-		return nil, fmt.Errorf("firmware must be retrieved first using RetrieveFirmware")
-	}
-
-	payloadFile, err := readFileFromZip(hfe.downloadPath, "payload.json")
-	if err != nil {
-		return nil, err
-	}
-
-	var payload HPEPayload
-	if err = json.Unmarshal(payloadFile, &payload); err != nil {
-		return nil, err
-	}
-
-	appstream, err := buildAppStream(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	appstream.Releases[0].Checksum = lvfs.Checksum{
-		Filename: hfe.Filename,
-		Target:   "content",
-	}
-
-	return appstream, nil
 }
 
 // buildAppStream converts an HPE firmware payload to an AppStream component.
