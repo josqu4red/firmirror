@@ -70,6 +70,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
+	// Monitor for shutdown signal
+	go func() {
+		<-ctx.Done()
+		slog.Warn("Shutdown signal received, waiting for current operations to complete...")
+	}()
+
 	if args.Signature.Certificate == "" || args.Signature.PrivateKey == "" {
 		slog.Warn("No certificate or private key provided, metadata will not be signed")
 	}
@@ -139,7 +145,6 @@ func main() {
 
 	for vendorName, vendor := range fm.GetAllVendors() {
 		if ctx.Err() != nil {
-			slog.Info("Shutdown requested, stopping processing")
 			break
 		}
 

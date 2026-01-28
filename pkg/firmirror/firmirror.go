@@ -61,7 +61,7 @@ func (f *FirmirrorSyncer) GetAllVendors() map[string]Vendor {
 // ProcessVendor processes firmware for a given vendor using the interface
 func (f *FirmirrorSyncer) ProcessVendor(ctx context.Context, vendor Vendor, vendorName string) error {
 	logger := slog.With("vendor", vendorName)
-	logger.Info("Fetching catalog")
+	logger.Debug("Fetching catalog")
 
 	catalog, err := vendor.FetchCatalog()
 	if err != nil {
@@ -133,7 +133,7 @@ func (f *FirmirrorSyncer) ProcessVendor(ctx context.Context, vendor Vendor, vend
 		f.newComponents = append(f.newComponents, *appstream)
 
 		processed++
-		entryLogger.Info("Successfully processed firmware")
+		entryLogger.Debug("Successfully processed firmware")
 	}
 
 	logger.Info("Completed vendor processing", "processed", processed, "skipped", skipped, "total", len(entries))
@@ -142,6 +142,7 @@ func (f *FirmirrorSyncer) ProcessVendor(ctx context.Context, vendor Vendor, vend
 
 func (f *FirmirrorSyncer) buildPackage(ctx context.Context, appstream *lvfs.Component, fwFile, tmpDir string) error {
 	fwPath := filepath.Join(tmpDir, fwFile)
+	logger := slog.With("firmware", fwFile)
 
 	// Add checksums to all releases
 	sha1Hash, sha256Hash, err := calculateChecksums(fwPath)
@@ -194,7 +195,7 @@ func (f *FirmirrorSyncer) buildPackage(ctx context.Context, appstream *lvfs.Comp
 	cmd := exec.Command("fwupdtool", fwupdArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		slog.Error("Failed to build package", "error", err, "output", string(out))
+		logger.Error("Failed to build package", "error", err, "output", string(out))
 		return err
 	}
 
@@ -315,7 +316,7 @@ func (f *FirmirrorSyncer) SaveMetadata(ctx context.Context) error {
 	for _, comp := range f.newComponents {
 		if existing, ok := componentMap[comp.ID]; ok {
 			// Merge releases if component already exists
-			logger.Info("Merging component", "id", comp.ID)
+			logger.Debug("Merging component", "id", comp.ID)
 			existing.Releases = append(existing.Releases, comp.Releases...)
 		} else {
 			// Add new component
@@ -381,7 +382,7 @@ func (f *FirmirrorSyncer) SaveMetadata(ctx context.Context) error {
 	}
 
 	logger.Info("Metadata saved successfully",
-		"total_components", len(componentMap),
+		"total_merged_components", len(componentMap),
 		"new_components", len(f.newComponents))
 
 	return nil
