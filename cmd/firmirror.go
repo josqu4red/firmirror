@@ -70,6 +70,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
+	if args.Signature.Certificate == "" || args.Signature.PrivateKey == "" {
+		slog.Warn("No certificate or private key provided, metadata will not be signed")
+	}
+
 	if args.S3.Enable {
 		storage, err = firmirror.NewS3Storage(context.Background(), args.S3.Bucket, args.S3.Prefix, args.S3.Region, args.S3.Endpoint)
 		if err != nil {

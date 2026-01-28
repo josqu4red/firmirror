@@ -177,10 +177,20 @@ func (f *FirmirrorSyncer) buildPackage(ctx context.Context, appstream *lvfs.Comp
 		return err
 	}
 
+	fwSig := filepath.Join(tmpDir, "firmware.jcat")
+	// sign payload
+	if err := f.signMetadata(fwSig, fwPath); err != nil {
+		return err
+	}
+	// sign metadata
+	if err := f.signMetadata(fwSig, fwMeta); err != nil {
+		return err
+	}
+
 	// Build CAB in the temporary directory
 	cabName := fwFile + ".cab"
 	cabPathInCache := filepath.Join(tmpDir, cabName)
-	fwupdArgs := []string{"build-cabinet", cabPathInCache, fwMeta, fwPath}
+	fwupdArgs := []string{"build-cabinet", cabPathInCache, fwPath, fwMeta, fwSig}
 	cmd := exec.Command("fwupdtool", fwupdArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -404,8 +414,8 @@ func compressMetadata(filePath string) error {
 	return nil
 }
 
-// signMetadata creates a .jcat signature file for the given file using jcat-tool
-// The jcat file contains checksums (SHA256, SHA512) and optionally a GPG signature
+// signMetadata creates a JCAT signature file for the given file using jcat-tool
+// The jcat file contains checksums (SHA256, SHA512) and signature if signing keys are provided
 func (f *FirmirrorSyncer) signMetadata(sigPath, filePath string) error {
 	jcatTool := func(args []string, wd string) error {
 		slog.Debug("Running jcat-tool", "args", args)
@@ -413,7 +423,6 @@ func (f *FirmirrorSyncer) signMetadata(sigPath, filePath string) error {
 		cmd.Dir = wd
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			slog.Error("Failed to run jcat-tool", "args", args, "error", err, "output", string(output))
 			return fmt.Errorf("jcat-tool failed: %w\nOutput: %s", err, output)
 		}
 		return nil
@@ -436,8 +445,6 @@ func (f *FirmirrorSyncer) signMetadata(sigPath, filePath string) error {
 		if err := jcatTool([]string{"sign", sig, file, f.Config.Certificate, f.Config.PrivateKey}, wd); err != nil {
 			return fmt.Errorf("failed to add signature to JCAT file: %w", err)
 		}
-	} else {
-		slog.Warn("Skipping metadata signing: certificate or private key not provided")
 	}
 
 	return nil
